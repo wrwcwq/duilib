@@ -1,5 +1,9 @@
 #include "StdAfx.h"
 
+#define DEFAULT_STYLE_PLACEHOLDER            _T('$')    /* Style标签中的默认占位符 */
+#define DEFAULT_STYLE_NAME_SEPARATOR         _T(':')    /* 控件的style属性中的风格名和参数列表的分隔符 */
+#define DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR _T(';')    /* 控件的style属性中的参数列表的默认分隔符 */
+
 namespace DuiLib {
 
 extern int g_imageRectStyle;
@@ -204,6 +208,82 @@ void CDialogBuilder::GetLastErrorLocation(LPTSTR pstrSource, SIZE_T cchMax) cons
     return m_xml.GetLastErrorLocation(pstrSource, cchMax);
 }
 
+static CDuiString GetFilledAttributeList(CDuiString sStyleAttribute, CDuiString sStyleArgumentList)
+{
+    TCHAR chPlaceholder = DEFAULT_STYLE_PLACEHOLDER;
+    TCHAR chSeparator = DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR;
+
+    if (sStyleAttribute.GetAt(0) == DEFAULT_STYLE_PLACEHOLDER) {
+        chPlaceholder = sStyleAttribute.GetAt(1);
+        sStyleAttribute = sStyleAttribute.Mid(2);
+    }
+
+    if (sStyleArgumentList.GetAt(0) == DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR) {
+        chSeparator = sStyleArgumentList.GetAt(1);
+        sStyleArgumentList = sStyleArgumentList.Mid(2);
+    }
+
+    int iStart = 0, iPos = 0, index = 0;
+    CDuiString sPlaceHolderStr(_T(""));
+    do
+    {
+        index++;
+        iPos = sStyleArgumentList.Find(chSeparator, iStart);
+        CDuiString sFillStr = sStyleArgumentList.Mid(iStart, iPos - iStart);
+        sPlaceHolderStr.Format(_T("%c%d"), chPlaceholder, index);
+        sStyleAttribute.Replace(sPlaceHolderStr, sFillStr);
+        iStart = iPos + 1;
+    } while (iPos >= 0);
+    return sStyleAttribute;
+}
+
+template<typename CControlNode>
+static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR pstrClass, CMarkupNode* pNode, CControlNode* pControlNode)
+{
+    // 若有控件默认配置先初始化默认属性
+    if( pManager ) {
+        pControlNode->SetManager(pManager, NULL, false);
+        LPCTSTR pDefaultAttributes = pManager->GetDefaultAttributeList(pstrClass);
+        if( pDefaultAttributes ) {
+            pControlNode->SetAttributeList(pDefaultAttributes);
+        }
+    }
+
+    // 解析所有属性并覆盖默认属性
+    if (pNode->HasAttributes()) {
+        // Set ordinary attributes
+        int nAttributes = pNode->GetAttributeCount();
+        for( int i = 0; i < nAttributes; i++ ) {
+            LPCTSTR pstrName = pNode->GetAttributeName(i);
+            LPCTSTR pstrValue = pNode->GetAttributeValue(i);
+
+            // 应用风格模板
+            if( _tcsicmp(pstrName, _T("style")) == 0 ) {
+                if( pManager ) {
+                    CDuiString sStyleStr(pstrValue);
+                    int iPos = sStyleStr.Find(DEFAULT_STYLE_NAME_SEPARATOR);
+                    bool styleHasFmt = (iPos != -1);
+                    LPCTSTR pstrStyleName = sStyleStr.Mid(0, iPos).GetData();
+                    LPCTSTR pstrStyleAttribute = pManager->GetDefaultAttributeList(pstrStyleName);
+                    CDuiString sStyleFilledAttribute(_T(""));
+                    if( pstrStyleAttribute ) {
+                        if( styleHasFmt ) {
+                            CDuiString sStyleAttribute(pstrStyleAttribute);
+                            CDuiString sStyleArgumentList(sStyleStr.Mid(iPos + 1));
+                            sStyleFilledAttribute = GetFilledAttributeList(sStyleAttribute, sStyleArgumentList);
+                            pstrStyleAttribute = sStyleFilledAttribute.GetData();
+                        }
+                        pControlNode->SetAttributeList(pstrStyleAttribute);
+                    }
+                }
+            }
+            else {
+                pControlNode->SetAttribute(pstrName, pstrValue);
+            }
+        }
+    }
+}
+
 CControlUI* CDialogBuilder::_Parse(CMarkupNode* pRoot, CControlUI* pParent, CPaintManagerUI* pManager)
 {
     IContainerUI* pContainer = NULL;
@@ -239,82 +319,35 @@ CControlUI* CDialogBuilder::_Parse(CMarkupNode* pRoot, CControlUI* pParent, CPai
         }
 		//树控件XML解析
 		else if( _tcsicmp(pstrClass, _T("TreeNode")) == 0 ) {
-			CTreeNodeUI* pParentNode	= static_cast<CTreeNodeUI*>(pParent->GetInterface(_T("TreeNode")));
-			CTreeNodeUI* pNode			= new CTreeNodeUI();
-			if(pParentNode){
-				if(!pParentNode->Add(pNode)){
-					delete pNode;
+			CTreeNodeUI* pParentTreeNode	= static_cast<CTreeNodeUI*>(pParent->GetInterface(_T("TreeNode")));
+			CTreeNodeUI* pTreeNode			= new CTreeNodeUI();
+			if( pParentTreeNode ){
+				if( !pParentTreeNode->Add(pTreeNode) ){
+					delete pTreeNode;
 					continue;
 				}
 			}
 
-			// 若有控件默认配置先初始化默认属性
-			if( pManager ) {
-				pNode->SetManager(pManager, NULL, false);
-				LPCTSTR pDefaultAttributes = pManager->GetDefaultAttributeList(pstrClass);
-				if( pDefaultAttributes ) {
-					pNode->SetAttributeList(pDefaultAttributes);
-				}
-			}
-
-			// 解析所有属性并覆盖默认属性
-			if( node.HasAttributes() ) {
-				// Set ordinary attributes
-				int nAttributes = node.GetAttributeCount();
-				for( int i = 0; i < nAttributes; i++ ) {
-					LPCTSTR pstrName = node.GetAttributeName(i);
-					LPCTSTR pstrValue = node.GetAttributeValue(i);
-
-					// 设置风格属性
-					if(_tcsicmp(pstrName, _T("style")) == 0 ) {
-						TCHAR szValue[500] = { 0 };
-						SIZE_T cchLen = lengthof(szValue) - 1;
-						bool styleHasFmt = node.GetAttributeValue(_T("styleref"), szValue, cchLen);
-
-						if( pManager ) {
-							LPCTSTR pStyleAttributes = pManager->GetDefaultAttributeList(pstrValue);
-							CDuiString sStyleFormat(pStyleAttributes);
-							if ( pStyleAttributes ) {
-								if( styleHasFmt ) {
-									CDuiString sStyleRef(szValue);
-									int iStart = 0, iPos = sStyleRef.Find(_T(','));
-									do
-									{
-										CDuiString sTemp = sStyleRef.Mid(iStart, iPos - iStart);
-										sStyleFormat.Replace(_T("%s"), sTemp, 1);
-										iStart = iPos + 1;
-										iPos = sStyleRef.Find(_T(','), iStart);
-									} while (iPos >= 0);
-									pStyleAttributes = sStyleFormat.GetData();
-								}
-								pNode->SetAttributeList(pStyleAttributes);
-							}
-						}
-					}
-					else if( _tcsicmp(pstrName, _T("styleref")) != 0 ) {
-						pNode->SetAttribute(pstrName, pstrValue);
-					}
-				}
-			}
+			ProcessAttributes(pManager, pstrClass, &node, pTreeNode);
 
 			//检索子节点及附加控件
-			if(node.HasChildren()){
-				CControlUI* pSubControl = _Parse(&node,pNode,pManager);
-				if(pSubControl && _tcsicmp(pSubControl->GetClass(),_T("TreeNodeUI")) != 0)
+			if( node.HasChildren() ){
+				CControlUI* pSubControl = _Parse(&node, pTreeNode, pManager);
+				if( pSubControl && _tcsicmp(pSubControl->GetClass(),_T("TreeNodeUI")) != 0 )
 				{
 					// 					pSubControl->SetFixedWidth(30);
-					// 					CHorizontalLayoutUI* pHorz = pNode->GetTreeNodeHoriznotal();
+					// 					CHorizontalLayoutUI* pHorz = pTreeNode->GetTreeNodeHoriznotal();
 					// 					pHorz->Add(new CEditUI());
 					// 					continue;
 				}
 			}
 
-			if(!pParentNode){
+			if( !pParentTreeNode ){
 				CTreeViewUI* pTreeView = static_cast<CTreeViewUI*>(pParent->GetInterface(_T("TreeView")));
 				ASSERT(pTreeView);
 				if( pTreeView == NULL ) return NULL;
-				if( !pTreeView->Add(pNode) ) {
-					delete pNode;
+				if( !pTreeView->Add(pTreeNode) ) {
+					delete pTreeNode;
 					continue;
 				}
 			}
@@ -423,7 +456,7 @@ CControlUI* CDialogBuilder::_Parse(CMarkupNode* pRoot, CControlUI* pParent, CPai
         int cchLen = lengthof(szValue) - 1;
         // Attach to parent
         // 因为某些属性和父窗口相关，比如selected，必须先Add到父窗口
-		if( pParent != NULL ) {
+        if( pParent != NULL ) {
             LPCTSTR lpValue = szValue;
             if( node.GetAttributeValue(_T("cover"), szValue, cchLen) && _tcscmp(lpValue, _T("true")) == 0 ) {
                 pParent->SetCover(pControl);
@@ -443,54 +476,10 @@ CControlUI* CDialogBuilder::_Parse(CMarkupNode* pRoot, CControlUI* pParent, CPai
                     }
                 }
             }
-		}
-        // Init default attributes
-        if( pManager ) {
-            pControl->SetManager(pManager, NULL, false);
-            LPCTSTR pDefaultAttributes = pManager->GetDefaultAttributeList(pstrClass);
-            if( pDefaultAttributes ) {
-                pControl->SetAttributeList(pDefaultAttributes);
-            }
         }
-        // Process attributes
-        if( node.HasAttributes() ) {
-            // Set ordinary attributes
-            int nAttributes = node.GetAttributeCount();
-            for( int i = 0; i < nAttributes; i++ ) {
-                LPCTSTR pstrName = node.GetAttributeName(i);
-                LPCTSTR pstrValue = node.GetAttributeValue(i);
 
-                // 设置风格属性
-                if( _tcsicmp(pstrName, _T("style")) == 0 ) {
-                    TCHAR szValue[500] = { 0 };
-                    SIZE_T cchLen = lengthof(szValue) - 1;
-                    bool styleHasFmt = node.GetAttributeValue(_T("styleref"), szValue, cchLen);
+        ProcessAttributes(pManager, pstrClass, &node, pControl);
 
-                    if( pManager ) {
-                        LPCTSTR pStyleAttributes = pManager->GetDefaultAttributeList(pstrValue);
-                        CDuiString sStyleFormat(pStyleAttributes);
-                        if( pStyleAttributes ) {
-                            if( styleHasFmt ) {
-                                CDuiString sStyleRef(szValue);
-                                int iStart = 0, iPos = 0;
-                                do
-                                {
-                                    iPos = sStyleRef.Find(_T(','), iStart);
-                                    CDuiString sTemp = sStyleRef.Mid(iStart, iPos - iStart);
-                                    sStyleFormat.Replace(_T("%s"), sTemp, 1);
-                                    iStart = iPos + 1;
-                                } while (iPos >= 0);
-                                pStyleAttributes = sStyleFormat.GetData();
-                            }
-                            pControl->SetAttributeList(pStyleAttributes);
-                        }
-                    }
-                }
-                else if( _tcsicmp(pstrName, _T("styleref")) != 0 ) {
-                    pControl->SetAttribute(pstrName, pstrValue);
-                }
-            }
-        }
         if( pManager ) {
             pControl->SetManager(NULL, NULL, false);
         }
