@@ -129,34 +129,58 @@ CControlUI* CDialogBuilder::Create(IDialogBuilderCallback* pCallback, CPaintMana
             }
             else if( _tcsicmp(pstrClass, _T("Default")) == 0 || _tcsicmp(pstrClass, _T("Style")) == 0 ) {
                 nAttributes = node.GetAttributeCount();
-                LPCTSTR pControlName = NULL;
-                LPCTSTR pControlValue = NULL;
+                LPCTSTR pStyleName = NULL;
                 LPCTSTR pImageRectStyle = NULL;
                 bool shared = false;
-                for( int i = 0; i < nAttributes; i++ ) {
+                /* 先检查是否存在name属性 */
+                for (int i = 0; i < nAttributes; i++) {
                     pstrName = node.GetAttributeName(i);
                     pstrValue = node.GetAttributeValue(i);
-                    if( _tcsicmp(pstrName, _T("name")) == 0 ) {
-                        pControlName = pstrValue;
+                    if (_tcsicmp(pstrName, _T("name")) == 0) {
+                        pStyleName = pstrValue;
                     }
-                    else if( _tcsicmp(pstrName, _T("value")) == 0 ) {
-                        pControlValue = pstrValue;
-                    }
-                    else if( _tcsicmp(pstrName, _T("shared")) == 0 ) {
+                    else if (pStyleName && _tcsicmp(pstrName, _T("shared")) == 0) {
                         shared = (_tcsicmp(pstrValue, _T("true")) == 0);
                     }
-                    else if( _tcsicmp(pstrName, _T("imagerectstyle")) == 0 ) {
+                    else if (_tcsicmp(pstrName, _T("imagerectstyle")) == 0) {
                         pImageRectStyle = pstrValue;
                     }
                 }
-                if( pControlName ) {
-                    pManager->AddDefaultAttributeList(pControlName, pControlValue, shared);
+                /* imagerectstyle只有在没有name属性的,Default或Style标签内定义才有效 */
+                if (!pStyleName && pImageRectStyle && _tcsicmp(pImageRectStyle, _T("l,t,w,h")) == 0) {
+                    g_imageRectStyle = STYLE_RECT_LTWH;
                 }
-                else if( pImageRectStyle ) {
-                    if( _tcsicmp(pImageRectStyle, _T("l,t,w,h") ) == 0) {
-                        g_imageRectStyle = STYLE_RECT_LTWH;
+
+                for( int i = 0; i < nAttributes; i++ ) {
+                    pstrName = node.GetAttributeName(i);
+                    pstrValue = node.GetAttributeValue(i);
+                    if( _tcsicmp(pstrName, _T("name")) == 0 || _tcsicmp(pstrName, _T("shared")) == 0 ) {
+                        /* 已经处理，跳过 */
+                    }
+                    else {
+                        /*
+                        if( _tcsicmp(pstrName, _T("value")) == 0 ||
+                              _tcsicmp(pstrName, _T("vscrollbarstyle")) == 0 ||
+                               _tcsicmp(pstrName, _T("hscrollbarstyle")) == 0 ||
+                                _tcsicmp(pstrName, _T("horizattr")) == 0 ||
+                                 _tcsicmp(pstrName, _T("dotlineattr")) == 0 ||
+                                  _tcsicmp(pstrName, _T("folderattr")) == 0 ||
+                                   _tcsicmp(pstrName, _T("checkboxattr")) == 0 ||
+                                    _tcsicmp(pstrName, _T("itemattr")) == 0 ) {
+                        */
+
+                        /* 允许width,height等全部属性不作为value属性的值,而是像folderattr一样进行单独定义
+                           (当风格定义太长时，可在单独属性定义后添加换行符来定义多行风格标签)
+                           <Style name="test" value="width=&quot;60&quot;" height="60"
+                                              folderattr="......"
+                           />
+                        */
+                        if (pStyleName) {
+                            pManager->AddDefaultAttributeList(pStyleName, pstrName, pstrValue, shared);
+                        }
                     }
                 }
+
             }
 			else if( _tcsicmp(pstrClass, _T("MultiLanguage")) == 0 ) {
 				nAttributes = node.GetAttributeCount();
@@ -243,9 +267,22 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
     // 若有控件默认配置先初始化默认属性
     if( pManager ) {
         pControlNode->SetManager(pManager, NULL, false);
-        LPCTSTR pDefaultAttributes = pManager->GetDefaultAttributeList(pstrClass);
-        if( pDefaultAttributes ) {
-            pControlNode->SetAttributeList(pDefaultAttributes);
+        CDuiStringPtrMap* pDefautAttrList = pManager->GetDefaultAttributeList(pstrClass);
+        CDuiString* pDefaultAttr = NULL;
+        if( pDefautAttrList ) {
+            for( int i = 0; i < pDefautAttrList->GetSize(); i++ ) {
+                if( LPCTSTR key = pDefautAttrList->GetAt(i) ) {
+                    pDefaultAttr = static_cast<CDuiString*>(pDefautAttrList->Find(key));
+                    if( pDefaultAttr ) {
+                        if( _tcsicmp(key, _T("value")) == 0 ) {
+                            pControlNode->SetAttributeList(pDefaultAttr->GetData());
+                        }
+                        else {
+                            pControlNode->SetAttribute(key, pDefaultAttr->GetData());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -264,7 +301,7 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
                     int iPos = sStyleStr.Find(DEFAULT_STYLE_NAME_SEPARATOR);
                     bool styleHasFmt = (iPos != -1);
                     LPCTSTR pstrStyleName = sStyleStr.Mid(0, iPos).GetData();
-                    LPCTSTR pstrStyleAttribute = pManager->GetDefaultAttributeList(pstrStyleName);
+                    LPCTSTR pstrStyleAttribute = pManager->GetDefaultAttributeList(pstrStyleName, _T("value"));
                     CDuiString sStyleFilledAttribute(_T(""));
                     if( pstrStyleAttribute ) {
                         if( styleHasFmt ) {
