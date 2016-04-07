@@ -232,8 +232,9 @@ void CDialogBuilder::GetLastErrorLocation(LPTSTR pstrSource, SIZE_T cchMax) cons
     return m_xml.GetLastErrorLocation(pstrSource, cchMax);
 }
 
-static CDuiString GetFilledAttributeList(CDuiString sStyleAttribute, CDuiString sStyleArgumentList)
+static CDuiString* GetFilledAttributeList(CDuiString sStyleAttribute, CDuiString sStyleArgumentList)
 {
+    CDuiString sStyleFilledAttribute(sStyleAttribute);
     TCHAR chPlaceholder = DEFAULT_STYLE_PLACEHOLDER;
     TCHAR chSeparator = DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR;
 
@@ -255,10 +256,40 @@ static CDuiString GetFilledAttributeList(CDuiString sStyleAttribute, CDuiString 
         iPos = sStyleArgumentList.Find(chSeparator, iStart);
         CDuiString sFillStr = sStyleArgumentList.Mid(iStart, iPos - iStart);
         sPlaceHolderStr.Format(_T("%c%d"), chPlaceholder, index);
-        sStyleAttribute.Replace(sPlaceHolderStr, sFillStr);
+        sStyleFilledAttribute.Replace(sPlaceHolderStr, sFillStr);
         iStart = iPos + 1;
     } while (iPos >= 0);
-    return sStyleAttribute;
+
+    return new CDuiString(sStyleFilledAttribute);
+}
+
+template<typename CControlNode>
+static void ApplyAttributes(CControlNode* pControlNode, CDuiStringPtrMap* pAttrList, CDuiString* sStyleArgumentList = NULL)
+{
+    CDuiString* pDefaultAttr = NULL;
+    bool needbefree = false;
+    if( pAttrList ) {
+        for( int i = 0; i < pAttrList->GetSize(); i++ ) {
+            if( LPCTSTR key = pAttrList->GetAt(i) ) {
+                pDefaultAttr = static_cast<CDuiString*>(pAttrList->Find(key));
+                if ( pDefaultAttr ) {
+                    /* 如果有Style风格参数则替换定义中的占位符 */
+                    needbefree = false;
+                    if ( sStyleArgumentList ) {
+                        pDefaultAttr = GetFilledAttributeList(*pDefaultAttr, *sStyleArgumentList);
+                        needbefree = true;
+                    }
+                    if( _tcsicmp(key, _T("value") ) == 0) {
+                        pControlNode->SetAttributeList(pDefaultAttr->GetData());
+                    }
+                    else {
+                        pControlNode->SetAttribute(key, pDefaultAttr->GetData());
+                    }
+                    if( needbefree ) delete pDefaultAttr;
+                }
+            }
+        }
+    }
 }
 
 template<typename CControlNode>
@@ -268,22 +299,7 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
     if( pManager ) {
         pControlNode->SetManager(pManager, NULL, false);
         CDuiStringPtrMap* pDefautAttrList = pManager->GetDefaultAttributeList(pstrClass);
-        CDuiString* pDefaultAttr = NULL;
-        if( pDefautAttrList ) {
-            for( int i = 0; i < pDefautAttrList->GetSize(); i++ ) {
-                if( LPCTSTR key = pDefautAttrList->GetAt(i) ) {
-                    pDefaultAttr = static_cast<CDuiString*>(pDefautAttrList->Find(key));
-                    if( pDefaultAttr ) {
-                        if( _tcsicmp(key, _T("value")) == 0 ) {
-                            pControlNode->SetAttributeList(pDefaultAttr->GetData());
-                        }
-                        else {
-                            pControlNode->SetAttribute(key, pDefaultAttr->GetData());
-                        }
-                    }
-                }
-            }
-        }
+        ApplyAttributes(pControlNode, pDefautAttrList);
     }
 
     // 解析所有属性并覆盖默认属性
@@ -301,16 +317,15 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
                     int iPos = sStyleStr.Find(DEFAULT_STYLE_NAME_SEPARATOR);
                     bool styleHasFmt = (iPos != -1);
                     LPCTSTR pstrStyleName = sStyleStr.Mid(0, iPos).GetData();
-                    LPCTSTR pstrStyleAttribute = pManager->GetDefaultAttributeList(pstrStyleName, _T("value"));
-                    CDuiString sStyleFilledAttribute(_T(""));
-                    if( pstrStyleAttribute ) {
+                    CDuiStringPtrMap* pStyleAttrList = pManager->GetDefaultAttributeList(pstrStyleName);
+                    if(pStyleAttrList) {
                         if( styleHasFmt ) {
-                            CDuiString sStyleAttribute(pstrStyleAttribute);
                             CDuiString sStyleArgumentList(sStyleStr.Mid(iPos + 1));
-                            sStyleFilledAttribute = GetFilledAttributeList(sStyleAttribute, sStyleArgumentList);
-                            pstrStyleAttribute = sStyleFilledAttribute.GetData();
+                            ApplyAttributes(pControlNode, pStyleAttrList, &sStyleArgumentList);
                         }
-                        pControlNode->SetAttributeList(pstrStyleAttribute);
+                        else {
+                            ApplyAttributes(pControlNode, pStyleAttrList);
+                        }
                     }
                 }
             }
