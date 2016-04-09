@@ -2936,7 +2936,6 @@ void CPaintManagerUI::ReloadImages()
  *  扩展Default标签,除了通过value以外,还可以直接定义以下属性
  *  TreeNode - horizattr,dotlineattr,folderattr,checkboxattr,itemattr
  *
- *  MENU,VerticalLayout,VScrollBar,HScrollBar <- 固定Default标签利用
  *  vscrollbarstyle,hscrollbarstyle           <- 属性列表.xml中已不存在定义
  *
  *  ControlName->默认属性字符串(value) 的Map关系变为:
