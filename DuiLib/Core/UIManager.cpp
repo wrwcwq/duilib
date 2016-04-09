@@ -3018,10 +3018,19 @@ void CPaintManagerUI::RemoveAllDefaultAttributeList(bool bShared)
     if (bShared) pResInfo = &m_SharedResInfo;
     {
         CDuiStringPtrMap* pDefautAttrList = NULL;
+        CDuiString* pDefaultAttr = NULL;
         for (int i = 0; i< pResInfo->m_AttrHash.GetSize(); i++) {
             if (LPCTSTR key = pResInfo->m_AttrHash.GetAt(i)) {
                 pDefautAttrList = static_cast<CDuiStringPtrMap*>(pResInfo->m_AttrHash.Find(key));
-                if (pDefautAttrList) pDefautAttrList->Resize(0);
+                if (pDefautAttrList) {
+                    for (int j = 0; j < pDefautAttrList->GetSize(); j++) {
+                        if (LPCTSTR key = pDefautAttrList->GetAt(j)) {
+                            pDefaultAttr = static_cast<CDuiString*>(pDefautAttrList->Find(key));
+                            if (pDefaultAttr) delete pDefaultAttr;
+                        }
+                    }
+                    delete pDefautAttrList;
+                }
             }
         }
         pResInfo->m_AttrHash.RemoveAll();
