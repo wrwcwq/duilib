@@ -1,9 +1,5 @@
 #include "StdAfx.h"
 
-#define DEFAULT_STYLE_PLACEHOLDER            _T('$')    /* Style标签中的默认占位符 */
-#define DEFAULT_STYLE_NAME_SEPARATOR         _T(':')    /* 控件的style属性中的风格名和参数列表的分隔符 */
-#define DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR _T(';')    /* 控件的style属性中的参数列表的默认分隔符 */
-
 namespace DuiLib {
 
 extern int g_imageRectStyle;
@@ -232,77 +228,7 @@ void CDialogBuilder::GetLastErrorLocation(LPTSTR pstrSource, SIZE_T cchMax) cons
     return m_xml.GetLastErrorLocation(pstrSource, cchMax);
 }
 
-static CDuiString* GetFilledAttributeList(CDuiString* pStyleAttribute, CDuiString* pStyleArgumentList)
-{
-    TCHAR chPlaceholder = DEFAULT_STYLE_PLACEHOLDER;
-    TCHAR chSeparator = DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR;
-
-    CDuiString sStyleFilledAttribute(*pStyleAttribute);
-
-    /* 如果不存在默认占位符,返回原定义 */
-    if( sStyleFilledAttribute.Find(DEFAULT_STYLE_PLACEHOLDER ) < 0) {
-        return pStyleAttribute;
-    }
-
-    if( sStyleFilledAttribute.GetAt(0) == DEFAULT_STYLE_PLACEHOLDER ) {
-        chPlaceholder = sStyleFilledAttribute.GetAt(1);
-        sStyleFilledAttribute = sStyleFilledAttribute.Mid(2);
-    }
-
-    /* 定义了新的占位符,但是模板中不存在新的占位符,不需要替换直接返回 */
-    if( sStyleFilledAttribute.Find(chPlaceholder) < 0 ) {
-        return new CDuiString(sStyleFilledAttribute);
-    }
-
-    CDuiString sStyleArgumentList(*pStyleArgumentList);
-    if( sStyleArgumentList.GetAt(0) == DEFAULT_STYLE_ARGUMENTLIST_SEPARATOR ) {
-        chSeparator = sStyleArgumentList.GetAt(1);
-        sStyleArgumentList = sStyleArgumentList.Mid(2);
-    }
-
-    int iStart = 0, iPos = 0, index = 0;
-    CDuiString sPlaceHolderStr(_T(""));
-    do
-    {
-        index++;
-        iPos = sStyleArgumentList.Find(chSeparator, iStart);
-        CDuiString sFillStr = sStyleArgumentList.Mid(iStart, iPos - iStart);
-        sPlaceHolderStr.Format(_T("%c%d"), chPlaceholder, index);
-        sStyleFilledAttribute.Replace(sPlaceHolderStr, sFillStr);
-        iStart = iPos + 1;
-    } while (iPos >= 0);
-
-    return new CDuiString(sStyleFilledAttribute);
-}
-
-template<typename CControlNode>
-static void ApplyAttributes(CControlNode* pControlNode, CDuiStringPtrMap* pAttrList, CDuiString* pStyleArgumentList = NULL)
-{
-    CDuiString* pStyleFilledAttr = NULL;
-    CDuiString* pStyleAttr = NULL;
-    if( !pAttrList ) return;
-    for( int i = 0; i < pAttrList->GetSize(); i++ ) {
-        if( LPCTSTR key = pAttrList->GetAt(i) ) {
-            pStyleAttr = static_cast<CDuiString*>(pAttrList->Find(key));
-            if ( !pStyleAttr ) continue;
-            pStyleFilledAttr = NULL;
-
-            /* 如果有Style风格参数则替换定义中的占位符 */
-            if( pStyleArgumentList ) {
-                pStyleFilledAttr = GetFilledAttributeList(pStyleAttr, pStyleArgumentList);
-                pStyleAttr = pStyleFilledAttr;
-            }
-
-            if( _tcsicmp(key, _T("value") ) == 0) {
-                pControlNode->SetAttributeList(pStyleAttr->GetData());
-            }
-            else {
-                pControlNode->SetAttribute(key, pStyleAttr->GetData());
-            }
-            if( pStyleFilledAttr != pStyleAttr) delete pStyleFilledAttr;
-        }
-    }
-}
+#define DEFAULT_STYLE_NAME_SEPARATOR    _T(':')    /* 控件的style属性中的风格名和参数列表的分隔符 */
 
 template<typename CControlNode>
 static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR pstrClass, CMarkupNode* pNode, CControlNode* pControlNode)
@@ -311,7 +237,7 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
     if( pManager ) {
         pControlNode->SetManager(pManager, NULL, false);
         CDuiStringPtrMap* pDefautAttrList = pManager->GetDefaultAttributeList(pstrClass);
-        ApplyAttributes(pControlNode, pDefautAttrList);
+        pControlNode->SetAttributeList(pDefautAttrList);
     }
 
     // 解析所有属性并覆盖默认属性
@@ -330,13 +256,13 @@ static void CDialogBuilder::ProcessAttributes(CPaintManagerUI* pManager, LPCTSTR
                     bool styleHasFmt = (iPos >= 0);
                     LPCTSTR pstrStyleName = sStyleStr.Mid(0, iPos).GetData();
                     CDuiStringPtrMap* pStyleAttrList = pManager->GetDefaultAttributeList(pstrStyleName);
-                    if(pStyleAttrList) {
+                    if( pStyleAttrList ) {
                         if( styleHasFmt ) {
                             CDuiString sStyleArgumentList(sStyleStr.Mid(iPos + 1));
-                            ApplyAttributes(pControlNode, pStyleAttrList, &sStyleArgumentList);
+                            pControlNode->SetAttributeList(pStyleAttrList, &sStyleArgumentList);
                         }
                         else {
-                            ApplyAttributes(pControlNode, pStyleAttrList);
+                            pControlNode->SetAttributeList(pStyleAttrList);
                         }
                     }
                 }
