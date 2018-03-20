@@ -135,7 +135,7 @@ CControlUI* CDialogBuilder::Create(IDialogBuilderCallback* pCallback, CPaintMana
                     if (_tcsicmp(pstrName, _T("name")) == 0) {
                         pStyleName = pstrValue;
                     }
-                    else if (pStyleName && _tcsicmp(pstrName, _T("shared")) == 0) {
+                    else if (_tcsicmp(pstrName, _T("shared")) == 0) {
                         shared = (_tcsicmp(pstrValue, _T("true")) == 0);
                     }
                     else if (_tcsicmp(pstrName, _T("imagerectstyle")) == 0) {
